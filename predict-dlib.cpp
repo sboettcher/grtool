@@ -7,7 +7,7 @@
 using namespace std;
 using namespace dlib;
 
-a_df df_from_stream(istream &model);
+a_df_mc df_from_stream(istream &model);
 
 //_______________________________________________________________________________________________________
 int main(int argc, char *argv[])
@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
     return -1;
   }
 
-  a_df df = df_from_stream(model);
+  a_df_mc df = df_from_stream(model);
 
 
 
@@ -129,8 +129,8 @@ int main(int argc, char *argv[])
 
 
 //_______________________________________________________________________________________________________
-a_df df_from_stream(istream &model) {
-  a_df df;
+a_df_mc df_from_stream(istream &model) {
+  a_df_mc df;
 
   char t[32], k[32];
   model.getline(t, 32);

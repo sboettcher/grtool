@@ -9,7 +9,7 @@ using namespace dlib;
 
 trainer_template* trainer_from_args(string name, cmdline::parser &c, string &input_file);
 void parse_specific_args(string name, cmdline::parser &p, cmdline::parser &s);
-any_trainer<sample_type> process_specific_args(string kernel, cmdline::parser &s);
+a_tr process_specific_args(string trainer_str, string kernel_str, cmdline::parser &s);
 
 //_______________________________________________________________________________________________________
 int main(int argc, const char *argv[])
@@ -127,9 +127,9 @@ int main(int argc, const char *argv[])
   */
 
   v_sample_type train_samples;
-  v_label_type train_labels;
+  v_label_type_mc train_labels;
   std::vector<int> train_indices;
-  v_label_type u_labels;
+  v_label_type_mc u_labels;
 
   string line, label;
 
@@ -167,7 +167,7 @@ int main(int argc, const char *argv[])
 
   /* select the trainset according to given cli option */
   v_sample_type test_samples;
-  v_label_type test_labels;
+  v_label_type_mc test_labels;
   std::vector<int> test_indices;
 
   if (isfile || ratio <= 0) {
@@ -181,7 +181,7 @@ int main(int argc, const char *argv[])
     // create strata vector with sample indices
     std::vector<std::vector<int>> train_strata(u_labels.size());
     std::vector<std::vector<int>> test_strata(u_labels.size());
-    std::vector<label_type> label_list(u_labels.begin(), u_labels.end());
+    std::vector<label_type_mc> label_list(u_labels.begin(), u_labels.end());
     for (size_t i = 0; i < train_labels.size(); ++i)
       train_strata[distance(label_list.begin(), find(label_list.begin(), label_list.end(), train_labels[i]))].push_back(i);
 
@@ -252,8 +252,8 @@ int main(int argc, const char *argv[])
   if (c.get<int>("cross-validate") > 0) {
     // randomize and cross-validate samples
     randomize_samples(train_samples, train_labels);
-    matrix<double> cv_result = trainer->crossValidation(train_samples, train_labels, c.get<int>("cross-validate"));
-    cout << classifier_str << " " << c.get<int>("cross-validate") << "-fold cross-validation:" << endl << cv_result << endl;
+    matrix<double> cv_result = trainer->crossValidationMulticlass(train_samples, train_labels, c.get<int>("cross-validate"));
+    cout << c.get<int>("cross-validate") << "-fold cross-validation:" << endl << cv_result << endl;
 
     cout << "number of samples: " << train_samples.size() << endl;
     cout << "number of unique labels: " << u_labels.size() << endl << endl;
@@ -263,7 +263,7 @@ int main(int argc, const char *argv[])
   }
   // training the classifiers and serializing them to the output
   else if (classifier_str == TrainerName::ONE_VS_ONE) {
-    ovo_trained_function_type df = trainer->train(train_samples, train_labels).cast_to<ovo_trained_function_type>();
+    ovo_trained_function_type df = trainer->trainMulticlass(train_samples, train_labels).cast_to<ovo_trained_function_type>();
     if (trainer->getKernel() == "hist")
       serialize(ovo_trained_function_type_hist_df(df), output);
     else if (trainer->getKernel() == "lin")
@@ -276,7 +276,7 @@ int main(int argc, const char *argv[])
       serialize(ovo_trained_function_type_sig_df(df), output);
   }
   else if (classifier_str == TrainerName::ONE_VS_ALL) {
-    ova_trained_function_type df = trainer->train(train_samples, train_labels).cast_to<ova_trained_function_type>();
+    ova_trained_function_type df = trainer->trainMulticlass(train_samples, train_labels).cast_to<ova_trained_function_type>();
     if (trainer->getKernel() == "hist")
       serialize(ova_trained_function_type_hist_df(df), output);
     else if (trainer->getKernel() == "lin")
@@ -289,7 +289,7 @@ int main(int argc, const char *argv[])
       serialize(ova_trained_function_type_sig_df(df), output);
   }
   else if (classifier_str == TrainerName::SVM_MULTICLASS_LINEAR) {
-    svm_ml_trained_function_type df = trainer->train(train_samples, train_labels).cast_to<svm_ml_trained_function_type>();
+    svm_ml_trained_function_type df = trainer->trainMulticlass(train_samples, train_labels).cast_to<svm_ml_trained_function_type>();
     serialize(df, output);
   }
 
@@ -321,6 +321,7 @@ trainer_template* trainer_from_args(string name, cmdline::parser &c, string &inp
   cmdline::parser p;
   cmdline::parser s;
 
+  // get a list of all possible trainers for ovo/ova
   std::vector<string> binary(classifierGetType(TrainerType::BINARY));
   std::vector<string> regression(classifierGetType(TrainerType::REGRESSION));
   std::vector<string> bin_reg(1, "list");
@@ -330,12 +331,12 @@ trainer_template* trainer_from_args(string name, cmdline::parser &c, string &inp
   // add specific options
   if (name == TrainerName::ONE_VS_ONE) {
     p.add<int>("threads", 'T', "number of threads/cores to use", false, 4);
-    p.add<string>("trainer", 0, "type of trainer to use for one vs one classification", false, "krr", cmdline::oneof_vector<string>(bin_reg));
+    p.add<string>("trainer", 0, "type of trainer to use for one vs one classification", false, "KRR", cmdline::oneof_vector<string>(bin_reg));
     p.add<string>("kernel", 0, "type of kernel to use in selected trainer", false, "rbf", cmdline::oneof<string>(KERNEL_TYPE));
   }
   else if (name == TrainerName::ONE_VS_ALL) {
     p.add<int>("threads", 'T', "number of threads/cores to use", false, 4);
-    p.add<string>("trainer", 0, "type of trainer to use for one vs all classification", false, "krr", cmdline::oneof_vector<string>(bin_reg));
+    p.add<string>("trainer", 0, "type of trainer to use for one vs all classification", false, "KRR", cmdline::oneof_vector<string>(bin_reg));
     p.add<string>("kernel", 0, "type of kernel to use in selected trainer", false, "rbf", cmdline::oneof<string>(KERNEL_TYPE));
   }
   else if (name == TrainerName::SVM_MULTICLASS_LINEAR) {
@@ -353,6 +354,7 @@ trainer_template* trainer_from_args(string name, cmdline::parser &c, string &inp
 
   parse_specific_args(name, p, s);
 
+  // print out help messages for specific arguments
   if (c.exist("help")) {
     cout << c.usage() << endl;
     cout << "specific " << name << " options:" << endl << p.str_options() << endl;
@@ -367,9 +369,9 @@ trainer_template* trainer_from_args(string name, cmdline::parser &c, string &inp
 
   // create trainer
   if (name == TrainerName::ONE_VS_ONE)
-    trainer = new ovo_trainer(c.exist("verbose"), p.get<int>("threads"), p.get<string>("kernel"), process_specific_args(p.get<string>("kernel"), s));
+    trainer = new ovo_trainer(c.exist("verbose"), p.get<int>("threads"), p.get<string>("kernel"), process_specific_args(p.get<string>("trainer"), p.get<string>("kernel"), s));
   else if (name == TrainerName::ONE_VS_ALL)
-    trainer = new ova_trainer(c.exist("verbose"), p.get<int>("threads"), p.get<string>("kernel"), process_specific_args(p.get<string>("kernel"), s));
+    trainer = new ova_trainer(c.exist("verbose"), p.get<int>("threads"), p.get<string>("kernel"), process_specific_args(p.get<string>("trainer"), p.get<string>("kernel"), s));
   else if (name == TrainerName::SVM_MULTICLASS_LINEAR)
     trainer = new svm_ml_trainer(c.exist("verbose"), p.get<int>("threads"), p.exist("nonneg"), p.get<double>("epsilon"), p.get<int>("iterations"), p.get<int>("regularization"));
 
@@ -378,6 +380,7 @@ trainer_template* trainer_from_args(string name, cmdline::parser &c, string &inp
     exit(-1);
   }
 
+  // if there is an unrecognized option at this point, it should be the input file name
   if (s.rest().size() > 0)
     input_file = s.rest()[0];
 
@@ -444,34 +447,56 @@ void parse_specific_args(string name, cmdline::parser &p, cmdline::parser &s)
   }
 }
 
-any_trainer<sample_type> process_specific_args(string kernel, cmdline::parser &s) {
-  any_trainer<sample_type> trainer;
+a_tr process_specific_args(string trainer_str, string kernel_str, cmdline::parser &s) {
+  trainer_template* trainer;
 
-  if (kernel == "hist") {
-    krr_trainer<offset_kernel<hist_kernel>> tmp;
-    tmp.set_kernel(offset_kernel<hist_kernel>(hist_kernel(), s.get<double>("offset")));
-    trainer = tmp;
-  }
-  else if (kernel == "lin") {
-    krr_trainer<offset_kernel<lin_kernel>> tmp;
-    tmp.set_kernel(offset_kernel<lin_kernel>(lin_kernel(), s.get<double>("offset")));
-    trainer = tmp;
-  }
-  else if (kernel == "rbf") {
-    krr_trainer<offset_kernel<rbf_kernel>> tmp;
-    tmp.set_kernel(offset_kernel<rbf_kernel>(rbf_kernel(s.get<double>("gamma")), s.get<double>("offset")));
-    trainer = tmp;
-  }
-  else if (kernel == "poly") {
-    krr_trainer<offset_kernel<poly_kernel>> tmp;
-    tmp.set_kernel(offset_kernel<poly_kernel>(poly_kernel(s.get<double>("gamma"), s.get<double>("coef"), s.get<double>("degree")), s.get<double>("offset")));
-    trainer = tmp;
-  }
-  else if (kernel == "sig") {
-    krr_trainer<offset_kernel<sig_kernel>> tmp;
-    tmp.set_kernel(offset_kernel<sig_kernel>(sig_kernel(s.get<double>("gamma"), s.get<double>("coef")), s.get<double>("offset")));
-    trainer = tmp;
+  if (trainer_str == TrainerName::KRR) {
+    if (kernel_str == "hist") {
+      trainer = new kernelridge_trainer<offset_kernel<hist_kernel>>(
+        false,
+        s.get<int>("max-basis"),
+        s.get<double>("lambda"),
+        s.exist("regression"),
+        kernel_str,
+        offset_kernel<hist_kernel>(hist_kernel(), s.get<double>("offset")));
+    }
+    else if (kernel_str == "lin") {
+      trainer = new kernelridge_trainer<offset_kernel<lin_kernel>>(
+        false,
+        s.get<int>("max-basis"),
+        s.get<double>("lambda"),
+        s.exist("regression"),
+        kernel_str,
+        offset_kernel<lin_kernel>(lin_kernel(), s.get<double>("offset")));
+    }
+    else if (kernel_str == "rbf") {
+      trainer = new kernelridge_trainer<offset_kernel<rbf_kernel>>(
+        false,
+        s.get<int>("max-basis"),
+        s.get<double>("lambda"),
+        s.exist("regression"),
+        kernel_str,
+        offset_kernel<rbf_kernel>(rbf_kernel(s.get<double>("gamma")), s.get<double>("offset")));
+    }
+    else if (kernel_str == "poly") {
+      trainer = new kernelridge_trainer<offset_kernel<poly_kernel>>(
+        false,
+        s.get<int>("max-basis"),
+        s.get<double>("lambda"),
+        s.exist("regression"),
+        kernel_str,
+        offset_kernel<poly_kernel>(poly_kernel(s.get<double>("gamma"), s.get<double>("coef"), s.get<double>("degree")), s.get<double>("offset")));
+    }
+    else if (kernel_str == "sig") {
+      trainer = new kernelridge_trainer<offset_kernel<sig_kernel>>(
+        false,
+        s.get<int>("max-basis"),
+        s.get<double>("lambda"),
+        s.exist("regression"),
+        kernel_str,
+        offset_kernel<sig_kernel>(sig_kernel(s.get<double>("gamma"), s.get<double>("coef")), s.get<double>("offset")));
+    }
   }
 
-  return trainer;
+  return trainer->getTrainer();
 }

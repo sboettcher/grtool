@@ -129,14 +129,18 @@ std::vector<string> classifierGetType(TrainerType type) {
 
 // typedef for one sample, init as 0,1 ; can be cast to arbitrary num_rows
 typedef matrix<double, 0, 1> sample_type;
-typedef string label_type;
+typedef double label_type;
+typedef string label_type_mc;
 
 typedef std::vector<sample_type> v_sample_type;
 typedef std::vector<label_type> v_label_type;
+typedef std::vector<label_type_mc> v_label_type_mc;
 
 // any typedefs
-typedef any_trainer<sample_type, label_type> a_tr;
-typedef any_decision_function<sample_type, label_type> a_df;
+typedef any_trainer<sample_type> a_tr;
+typedef any_decision_function<sample_type> a_df;
+typedef any_trainer<sample_type, label_type_mc> a_tr_mc; // for multiclass trainers
+typedef any_decision_function<sample_type, label_type_mc> a_df_mc; // for multiclass decision functions
 
 // kernel typedefs
 typedef histogram_intersection_kernel<sample_type> hist_kernel;
@@ -151,7 +155,7 @@ typedef sigmoid_kernel<sample_type> sig_kernel;
 // individual trainer typedefs
 
 // one vs one trainer typedefs
-typedef one_vs_one_trainer<any_trainer<sample_type>, label_type> ovo_trainer_type;
+typedef one_vs_one_trainer<a_tr, label_type_mc> ovo_trainer_type;
 typedef one_vs_one_decision_function<ovo_trainer_type> ovo_trained_function_type;
 typedef one_vs_one_decision_function<ovo_trainer_type, decision_function<offset_kernel<hist_kernel>>> ovo_trained_function_type_hist_df;
 typedef one_vs_one_decision_function<ovo_trainer_type, decision_function<offset_kernel<lin_kernel>>> ovo_trained_function_type_lin_df;
@@ -160,7 +164,7 @@ typedef one_vs_one_decision_function<ovo_trainer_type, decision_function<offset_
 typedef one_vs_one_decision_function<ovo_trainer_type, decision_function<offset_kernel<sig_kernel>>> ovo_trained_function_type_sig_df;
 
 // one vs all trainer typedefs
-typedef one_vs_all_trainer<any_trainer<sample_type>, label_type> ova_trainer_type;
+typedef one_vs_all_trainer<a_tr, label_type_mc> ova_trainer_type;
 typedef one_vs_all_decision_function<ova_trainer_type> ova_trained_function_type;
 typedef one_vs_all_decision_function<ova_trainer_type, decision_function<offset_kernel<hist_kernel>>> ova_trained_function_type_hist_df;
 typedef one_vs_all_decision_function<ova_trainer_type, decision_function<offset_kernel<lin_kernel>>> ova_trained_function_type_lin_df;
@@ -169,8 +173,8 @@ typedef one_vs_all_decision_function<ova_trainer_type, decision_function<offset_
 typedef one_vs_all_decision_function<ova_trainer_type, decision_function<offset_kernel<sig_kernel>>> ova_trained_function_type_sig_df;
 
 // svm multiclass linear trainer typedefs
-typedef svm_multiclass_linear_trainer<lin_kernel, label_type> svm_ml_trainer_type;
-typedef multiclass_linear_decision_function<lin_kernel, label_type> svm_ml_trained_function_type;
+typedef svm_multiclass_linear_trainer<lin_kernel, label_type_mc> svm_ml_trainer_type;
+typedef multiclass_linear_decision_function<lin_kernel, label_type_mc> svm_ml_trained_function_type;
 
 
 
@@ -212,13 +216,32 @@ class trainer_template {
     return m_trainer.train(all_samples, all_labels);
   }
 
+  a_tr_mc getTrainerMulticlass() {
+    if (m_trainer_mc.is_empty()) {
+      cerr << "Trainer not set!" << endl;
+      exit(-1);
+    }
+    return m_trainer_mc;
+  }
+
+  a_df_mc trainMulticlass(const v_sample_type& all_samples, const v_label_type_mc& all_labels) const {
+    if (m_trainer_mc.is_empty()) {
+      cerr << "Trainer not set!" << endl;
+      exit(-1);
+    }
+    return m_trainer_mc.train(all_samples, all_labels);
+  }
+
   virtual matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds) = 0;
+  virtual matrix<double> crossValidationMulticlass(const v_sample_type& samples, const v_label_type_mc& labels, const long folds) = 0;
 
  protected:
   void setTrainerType(TrainerType type) { m_trainer_type = type; }
   void setTrainerName(TrainerName name) { m_trainer_name = name; }
 
   a_tr m_trainer;
+  a_tr_mc m_trainer_mc;
+
   bool m_verbose = false;
   string m_kernel = "n/a";
 
@@ -229,10 +252,10 @@ class trainer_template {
 };
 
 
-//template<typename T> trainer_template * createInstance() { return new T; }
-//typedef std::map<std::string, trainer_template*(*)()> map_type;
-//map_type type_map;
-//type_map["ONE_VS_ONE"] = &createInstance<ovo_trainer>;
+class ovo_trainer;
+class ova_trainer;
+class svm_ml_trainer;
+template <typename K> class kernelridge_trainer;
 
 
 
@@ -256,28 +279,29 @@ class ovo_trainer : public trainer_template {
  public:
   typedef ovo_trainer_type T;
 
-  ovo_trainer(bool verbose = false, int num_threads = 4, string kernel = "", any_trainer<sample_type> bin_tr = krr_trainer<rbf_kernel>()) {
+  ovo_trainer(bool verbose = false, int num_threads = 4, string kernel_str = "", a_tr bin_tr = krr_trainer<rbf_kernel>()) {
     setTrainerType(TrainerType::MULTICLASS);
     setTrainerName(TrainerName::ONE_VS_ONE);
     m_verbose = verbose;
-    m_kernel = kernel;
+    m_kernel = kernel_str;
 
-    m_trainer.clear();
-    m_trainer.get<T>();
+    m_trainer_mc.clear();
+    m_trainer_mc.get<T>();
 
-    m_trainer.cast_to<T>().set_trainer(bin_tr);
+    m_trainer_mc.cast_to<T>().set_trainer(bin_tr);
 
-    m_trainer.cast_to<T>().set_num_threads(num_threads);
+    m_trainer_mc.cast_to<T>().set_num_threads(num_threads);
     if (m_verbose)
-      m_trainer.cast_to<T>().be_verbose();
+      m_trainer_mc.cast_to<T>().be_verbose();
   }
 
-  matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds = 5) {
-    if (m_trainer.is_empty()) {
+  matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds){return matrix<double>();}
+  matrix<double> crossValidationMulticlass(const v_sample_type& samples, const v_label_type_mc& labels, const long folds = 5) {
+    if (m_trainer_mc.is_empty()) {
       cerr << "Trainer not set!" << endl;
       exit(-1);
     }
-    return cross_validate_multiclass_trainer(m_trainer.cast_to<T>(), samples, labels, folds);
+    return cross_validate_multiclass_trainer(m_trainer_mc.cast_to<T>(), samples, labels, folds);
   }
 };
 
@@ -298,28 +322,29 @@ class ova_trainer : public trainer_template {
  public:
   typedef ova_trainer_type T;
 
-  ova_trainer(bool verbose = false, int num_threads = 4, string kernel = "", any_trainer<sample_type> bin_tr = krr_trainer<rbf_kernel>()) {
+  ova_trainer(bool verbose = false, int num_threads = 4, string kernel = "", a_tr bin_tr = krr_trainer<rbf_kernel>()) {
     setTrainerType(TrainerType::MULTICLASS);
     setTrainerName(TrainerName::ONE_VS_ALL);
     m_verbose = verbose;
     m_kernel = kernel;
 
-    m_trainer.clear();
-    m_trainer.get<T>();
+    m_trainer_mc.clear();
+    m_trainer_mc.get<T>();
 
-    m_trainer.cast_to<T>().set_trainer(bin_tr);
+    m_trainer_mc.cast_to<T>().set_trainer(bin_tr);
 
-    m_trainer.cast_to<T>().set_num_threads(num_threads);
+    m_trainer_mc.cast_to<T>().set_num_threads(num_threads);
     if (m_verbose)
-      m_trainer.cast_to<T>().be_verbose();
+      m_trainer_mc.cast_to<T>().be_verbose();
   }
 
-  matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds = 5) {
-    if (m_trainer.is_empty()) {
+  matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds){return matrix<double>();}
+  matrix<double> crossValidationMulticlass(const v_sample_type& samples, const v_label_type_mc& labels, const long folds = 5) {
+    if (m_trainer_mc.is_empty()) {
       cerr << "Trainer not set!" << endl;
       exit(-1);
     }
-    return cross_validate_multiclass_trainer(m_trainer.cast_to<T>(), samples, labels, folds);
+    return cross_validate_multiclass_trainer(m_trainer_mc.cast_to<T>(), samples, labels, folds);
   }
 };
 
@@ -345,25 +370,26 @@ class svm_ml_trainer : public trainer_template {
     setTrainerName(TrainerName::SVM_MULTICLASS_LINEAR);
     m_verbose = verbose;
 
-    m_trainer.clear();
-    m_trainer.get<T>();
+    m_trainer_mc.clear();
+    m_trainer_mc.get<T>();
 
-    m_trainer.cast_to<T>().set_learns_nonnegative_weights(nonneg);
-    m_trainer.cast_to<T>().set_epsilon(epsilon);
-    m_trainer.cast_to<T>().set_max_iterations(iterations);
-    m_trainer.cast_to<T>().set_c(regularization);
+    m_trainer_mc.cast_to<T>().set_learns_nonnegative_weights(nonneg);
+    m_trainer_mc.cast_to<T>().set_epsilon(epsilon);
+    m_trainer_mc.cast_to<T>().set_max_iterations(iterations);
+    m_trainer_mc.cast_to<T>().set_c(regularization);
 
-    m_trainer.cast_to<T>().set_num_threads(num_threads);
+    m_trainer_mc.cast_to<T>().set_num_threads(num_threads);
     if (m_verbose)
-      m_trainer.cast_to<T>().be_verbose();
+      m_trainer_mc.cast_to<T>().be_verbose();
   }
 
-  matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds = 5) {
-    if (m_trainer.is_empty()) {
+  matrix<double> crossValidation(const v_sample_type& samples, const v_label_type& labels, const long folds){return matrix<double>();}
+  matrix<double> crossValidationMulticlass(const v_sample_type& samples, const v_label_type_mc& labels, const long folds = 5) {
+    if (m_trainer_mc.is_empty()) {
       cerr << "Trainer not set!" << endl;
       exit(-1);
     }
-    return cross_validate_multiclass_trainer(m_trainer.cast_to<T>(), samples, labels, folds);
+    return cross_validate_multiclass_trainer(m_trainer_mc.cast_to<T>(), samples, labels, folds);
   }
 };
 
@@ -385,13 +411,20 @@ class kernelridge_trainer : public trainer_template {
  public:
   typedef krr_trainer<K> T;
 
-  kernelridge_trainer(bool verbose = false, K kernel = K()) {
+  kernelridge_trainer(bool verbose = false, int max_basis = 400, double lambda = 0, bool regression = false, string kernel_str = "", K kernel = K()) {
     setTrainerType(TrainerType::REGRESSION);
     setTrainerName(TrainerName::KRR);
     m_verbose = verbose;
+    m_kernel = kernel_str;
 
     m_trainer.clear();
     m_trainer.get<T>();
+
+    m_trainer.cast_to<T>().set_max_basis_size(max_basis);
+    m_trainer.cast_to<T>().set_lambda(lambda);
+
+    if (regression) m_trainer.cast_to<T>().use_regression_loss_for_loo_cv();
+    else m_trainer.cast_to<T>().use_classification_loss_for_loo_cv();
 
     m_trainer.cast_to<T>().set_kernel(kernel);
 
@@ -406,6 +439,7 @@ class kernelridge_trainer : public trainer_template {
     }
     return cross_validate_regression_trainer(m_trainer.cast_to<T>(), samples, labels, folds);
   }
+  matrix<double> crossValidationMulticlass(const v_sample_type& samples, const v_label_type_mc& labels, const long folds){return matrix<double>();}
 };
 
 
