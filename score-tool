@@ -5,6 +5,10 @@ import argparse, fileinput
 import math, random
 import numpy as np
 import csv, sqlite3
+import itertools
+import operator
+
+from pprint import pprint
 
 
 # helper to get uniques from a list or list of lists whilst preserving order
@@ -316,6 +320,181 @@ def load_scores(files, cursor, args):
 def db_sandbox(cursor, args):
   pass
 
+  # cross-validation
+#  datasets = ['ubi']
+#  #methods = ['skl_SVM','skl_RF','skl_SVM_sup','skl_RF_sup']
+#  methods = ['lda','qda','lda_sup','qda_sup']
+#
+#  sequence = 'seq'
+#  parameters = ['window','feature','hyst']
+#
+#  agg_columns = ['total_accuracy','total_recall','total_precision','total_Fbeta']
+#  print_columns = [sequence] + parameters + agg_columns
+#  order_by = 'total_recall'
+#
+#  def sql_str(s):
+#    if isinstance(s,str): return "'{}'".format(s)
+#    else: return s
+#
+#  for d in datasets:
+#    for m in methods:
+#      print()
+#      print("{}: {}".format(d,m))
+#
+#      table = d+'_'+m
+#
+#      seq_sql = 'SELECT DISTINCT ' + sequence + ' FROM ' + table
+#      try: cursor.execute(seq_sql)
+#      except sqlite3.OperationalError as ex: continue
+#
+#      sequence_uniques = [ i[0] for i in cursor.fetchall() ]
+#
+#      parameter_uniques = {}
+#      for p in parameters:
+#        par_sql = 'SELECT DISTINCT ' + p + ' FROM ' + d+'_'+m
+#        try: cursor.execute(par_sql)
+#        except sqlite3.OperationalError as ex: continue
+#
+#        par_unique = [ i[0] for i in cursor.fetchall() ]
+#        parameter_uniques[p] = par_unique
+#
+#      #pprint(sequence_uniques)
+#      #pprint(parameter_uniques)
+#
+#      arglist = []
+#      for k in parameter_uniques.keys():
+#        arglist.append([ (k,v) for v in parameter_uniques[k] ])
+#
+#      #pprint(arglist)
+#      combinations = itertools.product(*arglist)
+#      #pprint(list(combinations))
+#
+#      agg_print_rows = []
+#      for c in combinations:
+#        sql = ''
+#        for pair in c:
+#          sql += ' {}{}={}'.format('AND ' if len(sql)>0 else '',pair[0],sql_str(pair[1]))
+#        sql = 'SELECT * from ' + table + ' WHERE' + sql
+#        #print('\n'+sql)
+#
+#        try: cursor.execute(sql)
+#        except sqlite3.OperationalError as ex: continue
+#
+#        rows = [ i for i in cursor.fetchall() ]
+#        cols = [ d[0] for d in cursor.description ]
+#
+#        agg_values = {}
+#        agg_means = {}
+#        for a in agg_columns:
+#          agg_values[a] = [ r[cols.index(a)] for r in rows ]
+#          agg_means[a] = np.mean(agg_values[a])
+#
+#        #print_rows = []
+#        #for r in rows:
+#        #  print_row = []
+#        #  for c in print_columns:
+#        #    print_row.append(r[cols.index(c)])
+#        #  print_rows.append(print_row)
+#        #print(tabulate(print_rows, headers=print_columns, tablefmt=args.format))
+#
+#        agg_print_row = ['mean']
+#        for p in parameters:
+#          for pair in c:
+#            if p == pair[0]: agg_print_row.append(pair[1])
+#        for a in agg_columns: agg_print_row.append(agg_means[a])
+#        agg_print_rows.append(agg_print_row)
+#
+#      #acc_mod = ["head_acc","head_gyr","head_mag","wrist_acc","wrist_gyr","wrist_mag","head_acc_head_gyr_head_mag_wrist_acc_wrist_gyr_wrist_mag"]
+#      #for i in reversed(range(len(agg_print_rows))):
+#      #  if agg_print_rows[i][print_columns.index("modality")] not in acc_mod: agg_print_rows.pop(i)
+#
+#      # clean NaNs
+#      for i in reversed(range(len(agg_print_rows))):
+#        for f in agg_print_rows[i]:
+#          if isinstance(f,np.float64) and np.isnan(f):
+#            agg_print_rows.pop(i)
+#            break
+#
+#      agg_print_rows.sort(reverse=True,key=operator.itemgetter(print_columns.index(order_by)))
+#      print(tabulate(agg_print_rows[:5], headers=print_columns, tablefmt=args.format))
+
+
+  # gets the intersection of multiple columns over multiple tables, then retrives scores for each intersection result, order by primaryset, get special value from primaryset
+#  from operator import itemgetter
+#
+#  datasets = ['hs','ubi','cmu']
+#  methods_unsup = ['KMeans','Agglomerative','GMM']
+#  methods_sup_trans = ['skl_RF','skl_SVM']
+#  methods_sup_multi = ['skl_RF_sup','skl_SVM_sup']
+#  methods_all = methods_unsup + methods_sup_trans + methods_sup_multi
+#
+#  #primaryset = 2 # hs=1 ubi=2 cmu=3
+#  primaryset = 'ubi'
+#
+#  lowerbound = 0.85
+#
+#  for m in methods_all:
+#    intersect_sql = 'SELECT window, feature, hyst FROM hs_{0} WHERE total_recall>={1} AND total_recall<1 INTERSECT SELECT window, feature, hyst FROM ubi_{0} WHERE total_recall>={1} AND total_recall<1 INTERSECT SELECT window, feature, hyst FROM cmu_{0} WHERE total_recall>={1} AND total_recall<1'.format(m,lowerbound)
+#    print(m)
+#    all_top_columns = list() # result columns
+#    all_top_rows = list() # result rows
+#
+#    if args.verbose: sys.stderr.write(intersect_sql + '\n')
+#    cursor.execute(intersect_sql)
+#    intersect_columns = [ d[0] for d in cursor.description ]
+#    intersect_rows = cursor.fetchall()
+#
+#    if not len(intersect_rows):
+#      sys.stderr.write('No intersections, skipping...\n\n')
+#      continue
+#
+#    for r in intersect_rows:
+#      row = list(r)
+#      top_columns = list()
+#      top_rows = list()
+#
+#      for ds in datasets:
+#        if m in methods_unsup:
+#          top_sql = 'SELECT class,window,feature,cluster,hyst,total_accuracy,total_recall,total_precision,total_Fbeta'
+#          first_score_ix = 5
+#        elif m == 'SVM':
+#          top_sql = 'SELECT class,window,feature,kernel,hyst,total_accuracy,total_recall,total_precision,total_Fbeta'
+#          first_score_ix = 5
+#        else:
+#          top_sql = 'SELECT class,window,feature,hyst,total_accuracy,total_recall,total_precision,total_Fbeta'
+#          first_score_ix = 4
+#
+#        top_sql +=  ' FROM {1}_{0} WHERE total_recall>={8} AND total_recall<1 AND {2}={3} AND {4}="{5}" AND {6}={7} ORDER BY total_recall DESC LIMIT 1'.format(m,ds,intersect_columns[0],row[0],intersect_columns[1],row[1],intersect_columns[2],row[2],lowerbound)
+#        if args.verbose: sys.stderr.write(top_sql + '\n')
+#        cursor.execute(top_sql)
+#        top_columns = [ d[0] for d in cursor.description ]
+#        top_rows.append(list(cursor.fetchall()[0]))
+#
+#      new_top_row = top_rows[datasets.index(primaryset)][0:first_score_ix]
+#      for i in range(len(datasets)):
+#        new_top_row.extend(top_rows[i][first_score_ix:])
+#      all_top_rows.append(new_top_row)
+#
+#    all_top_columns = top_columns[0:first_score_ix]
+#    all_top_columns.append('hs a')
+#    all_top_columns.append('hs r')
+#    all_top_columns.append('hs p')
+#    all_top_columns.append('hs F')
+#    all_top_columns.append('ubi a')
+#    all_top_columns.append('ubi r')
+#    all_top_columns.append('ubi p')
+#    all_top_columns.append('ubi F')
+#    all_top_columns.append('cmu a')
+#    all_top_columns.append('cmu r')
+#    all_top_columns.append('cmu p')
+#    all_top_columns.append('cmu F')
+#
+#    assert len(all_top_rows[0]) == len(all_top_columns)
+#    #all_top_rows = reversed(sorted(all_top_rows, key=itemgetter(len(all_top_columns)-(4-primaryset))))
+#    all_top_rows = reversed(sorted(all_top_rows, key=itemgetter( all_top_columns.index(primaryset + " r") )))
+#
+#    print(tabulate(all_top_rows, headers=all_top_columns, tablefmt=args.format))
+#    print()
 
 
 
